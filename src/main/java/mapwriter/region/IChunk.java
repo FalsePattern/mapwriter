@@ -1,7 +1,7 @@
 package mapwriter.region;
 
 public interface IChunk {
-    int getBlockAndMetadata(int x, int y, int z);
+    long getBlockAndMetadataPacked(int x, int y, int z);
 
     int getBiome(int x, int z);
 

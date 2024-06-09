@@ -1,5 +1,9 @@
 // Add your dependencies here
 
 dependencies {
-    compileOnly "dev.modwarriors.notenoughkeys:NotEnoughKeys:1.7.10-2.0.0b4:deobf-dev"
+    compileOnly("dev.modwarriors.notenoughkeys:NotEnoughKeys:1.7.10-2.0.0b4:deobf-dev")
+    compileOnly("com.falsepattern:endlessids-mc1.7.10:1.5.0:dev")
+
+    compileOnly("org.projectlombok:lombok:1.18.32")
+    annotationProcessor("org.projectlombok:lombok:1.18.32")
 }

@@ -8,6 +8,8 @@ import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.util.IIcon;
 import net.minecraft.world.biome.BiomeGenBase;
 
+import static mapwriter.region.BlockColours.metaCount;
+
 // Static class to generate BlockColours.
 // This is separate from BlockColours because it needs to run in the GL rendering thread
 // whereas the generated BlockColours object is used only in the background thread.
@@ -35,10 +37,10 @@ public class BlockColourGen {
 		return Render.getAverageColourOfArray(pixels);
 	}
 	
-	private static int adjustBlockColourFromType(BlockColours bc, int blockAndMeta, int blockColour) {
+	private static int adjustBlockColourFromType(BlockColours bc, long blockAndMeta, int blockColour) {
 		// for normal blocks multiply the block colour by the render colour.
 		// for other blocks the block colour will be multiplied by the biome colour.
-        int blockid = blockAndMeta >> 4;
+		int blockid = (int) (blockAndMeta & 0xFFFFFFFFL);
 		Block block = (Block) Block.blockRegistry.getObjectById(blockid);
 		BlockType blockType = bc.getBlockType(blockAndMeta);
 		switch (blockType) {
@@ -49,7 +51,7 @@ public class BlockColourGen {
 			// fix crash when mods don't implement getRenderColor for all
 			// block meta values.
 			try {
-				int renderColour = block.getRenderColor(blockAndMeta & 0xf);
+				int renderColour = block.getRenderColor((int) ((blockAndMeta >>> 32) & 0xFFFFFFFFL));
 				if (renderColour != 0xffffff) {
 					blockColour = Render.multiplyColours(blockColour, 0xff000000 | renderColour);
 				}
@@ -120,7 +122,7 @@ public class BlockColourGen {
 
 			for (int dv = 0; dv < 17; dv++) {
 
-				int blockAndMeta = ((blockID & 0xfff) << 4) | (dv & 0xf);
+				long blockAndMeta = (blockID & 0xFFFFFFFFL) | ((dv & 0xFFFFFFFFL) << 32);
 				int blockColour = 0;
 
 				if (block != null) {

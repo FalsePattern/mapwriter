@@ -76,7 +76,7 @@ public class ChunkRender {
         double g = 0.0;
         double b = 0.0;
         for (; y > 0; y--) {
-            int blockAndMeta = chunk.getBlockAndMetadata(x, y, z);
+            long blockAndMeta = chunk.getBlockAndMetadataPacked(x, y, z);
 
             int c1 = bc.getColour(blockAndMeta);
             int alpha = (c1 >> 24) & 0xff;
@@ -154,7 +154,7 @@ public class ChunkRender {
                 int y;
                 if (dimensionHasCeiling) {
                     for (y = 127; y >= 0; y--) {
-                        int blockAndMeta = chunk.getBlockAndMetadata(x, y, z);
+                        long blockAndMeta = chunk.getBlockAndMetadataPacked(x, y, z);
                         int alpha = (bc.getColour(blockAndMeta) >> 24) & 0xff;
                         if (alpha != 0xff) {
                             break;
@@ -189,7 +189,7 @@ public class ChunkRender {
                 // towards the sky from startY
                 int lastNonTransparentY = startY;
                 for (int y = startY; y < chunk.getMaxY(); y++) {
-                    int blockAndMeta = chunk.getBlockAndMetadata(x, y, z);
+                    long blockAndMeta = chunk.getBlockAndMetadataPacked(x, y, z);
                     int alpha = (bc.getColour(blockAndMeta) >> 24) & 0xff;
                     if (alpha == 0xff) {
                         break;

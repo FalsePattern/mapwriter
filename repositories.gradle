@@ -7,4 +7,10 @@ repositories {
             artifact()
         }
     }
+    maven {
+        url = "https://mvn.falsepattern.com/releases/"
+        content {
+            includeGroup("com.falsepattern")
+        }
+    }
 }

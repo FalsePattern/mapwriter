@@ -1,5 +1,9 @@
 package mapwriter.region;
 
+import lombok.RequiredArgsConstructor;
+import lombok.val;
+import mapwriter.forge.EndlessIDsCompat;
+
 import net.minecraft.block.Block;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
@@ -24,31 +28,30 @@ public class MwChunk implements IChunk {
     public final int z;
     public final int dimension;
 
-    public final byte[][] msbArray;
-    public final byte[][] lsbArray;
-    public final byte[][] metaArray;
+    private interface BlockDataStorage {
+        int idAt(int subchunk, int offset);
+        int metaAt(int subchunk, int offset);
+    }
+
+    private final BlockStorage blockStorage;
+    private final BiomeStorage biomeStorage;
     public final byte[][] lightingArray;
     public final Map<ChunkPosition, TileEntity> tileEntityMap;
 
-    public final byte[] biomeArray;
-
     public final int maxY;
 
-    public MwChunk(int x, int z, int dimension, byte[][] msbArray,
-                   byte[][] lsbArray, byte[][] metaArray, byte[][] lightingArray,
-                   byte[] biomeArray, Map<ChunkPosition, TileEntity> tileEntityMap) {
+    public MwChunk(int x, int z, int dimension, BlockStorage blockStorage, BiomeStorage biomeStorage,
+                   byte[][] lightingArray, Map<ChunkPosition, TileEntity> tileEntityMap) {
         this.x = x;
         this.z = z;
         this.dimension = dimension;
-        this.msbArray = msbArray;
-        this.lsbArray = lsbArray;
-        this.metaArray = metaArray;
-        this.biomeArray = biomeArray;
+        this.blockStorage = blockStorage;
+        this.biomeStorage = biomeStorage;
         this.lightingArray = lightingArray;
         this.tileEntityMap = tileEntityMap;
         int maxY = 0;
         for (int y = 0; y < 16; y++) {
-            if (lsbArray[y] != null) {
+            if (blockStorage.hasSubChunk(y)) {
                 maxY = (y << 4) + 15;
             }
         }
@@ -63,10 +66,8 @@ public class MwChunk implements IChunk {
     public static MwChunk read(int x, int z, int dimension,
                                RegionFileCache regionFileCache) {
 
-        byte[] biomeArray = null;
-        byte[][] msbArray = new byte[16][];
-        byte[][] lsbArray = new byte[16][];
-        byte[][] metaArray = new byte[16][];
+        BiomeStorage biomes = null;
+        BlockStorage blocks = null;
         byte[][] lightingArray = new byte[16][];
         Map<ChunkPosition, TileEntity> TileEntityMap = new HashMap<>();
 
@@ -121,19 +122,8 @@ public class MwChunk implements IChunk {
                             xNbt, zNbt);
                 }
 
-                NBTTagList sections = level.getTagList("Sections", 10);
-
-                for (int k = 0; k < sections.tagCount(); ++k) {
-                    NBTTagCompound section = sections.getCompoundTagAt(k);
-                    int y = section.getByte("Y");
-                    lsbArray[y & 0xf] = section.getByteArray("Blocks");
-                    if (section.hasKey("Add", 7)) {
-                        msbArray[y & 0xf] = section.getByteArray("Add");
-                    }
-                    metaArray[y & 0xf] = section.getByteArray("Data");
-                }
-
-                biomeArray = level.getByteArray("Biomes");
+                blocks = BlockStorage.deserialize(level);
+                biomes = BiomeStorage.deserialize(level);
 
                 NBTTagList nbttaglist2 = level.getTagList("TileEntities", 10);
 
@@ -169,14 +159,13 @@ public class MwChunk implements IChunk {
             // empty);
         }
 
-        return new MwChunk(x, z, dimension, msbArray, lsbArray, metaArray,
-                lightingArray, biomeArray, TileEntityMap);
+        return new MwChunk(x, z, dimension, blocks, biomes, lightingArray, TileEntityMap);
     }
 
     public int getBiome(int x, int z) {
-        return (this.biomeArray != null) ? (int) (this.biomeArray[((z & 0xf) << 4)
-                | (x & 0xf)]) & 0xff
-                : 0;
+        if (this.biomeStorage == null)
+            return 0;
+        return biomeStorage.biomeAt((z & 0xF) << 4);
     }
 
     public int getLightValue(int x, int y, int z) {
@@ -229,16 +218,12 @@ public class MwChunk implements IChunk {
         }
     }
 
-    public int getBlockAndMetadata(int x, int y, int z) {
+    public long getBlockAndMetadataPacked(int x, int y, int z) {
         int yi = (y >> 4) & 0xf;
         int offset = ((y & 0xf) << 8) | ((z & 0xf) << 4) | (x & 0xf);
         ChunkPosition chunkposition = new ChunkPosition(x, y, z);
-        int lsb = this.lsbArray[yi] != null && this.lsbArray[yi].length != 0 ? this.lsbArray[yi][offset]
-                : 0;
-        int msb = ((this.msbArray != null) && (this.msbArray[yi] != null) && (this.msbArray[yi].length != 0)) ? this.msbArray[yi][offset >> 1]
-                : 0;
-        int meta = ((this.metaArray != null) && (this.metaArray[yi] != null) && (this.metaArray[yi].length != 0)) ? this.metaArray[yi][offset >> 1]
-                : 0;
+        int blockID = blockStorage.idAt(yi, offset);
+        int meta = blockStorage.metaAt(yi, offset);
 
         // check if the block has a tileentity if so use the blockdata in the
         // tileentity
@@ -275,18 +260,11 @@ public class MwChunk implements IChunk {
                 }
             }
             if (id != 0) {
-                lsb = (id & 255);
-                if (id > 255) {
-                    msb = (id & 3840) >> 8;
-                } else {
-                    msb = 0;
-                }
+                blockID = id;
             }
         }
 
-        return ((offset & 1) == 1) ? ((msb & 0xf0) << 8) | ((lsb & 0xff) << 4)
-                | ((meta & 0xf0) >> 4) : ((msb & 0x0f) << 12)
-                | ((lsb & 0xff) << 4) | (meta & 0x0f);
+        return ((meta & 0xFFFFFFFFL) << 32) | (blockID & 0xFFFFFFFFL);
     }
 
     // changed to use the NBTTagCompound that minecraft uses. this makes the
@@ -299,34 +277,15 @@ public class MwChunk implements IChunk {
         nbttagcompound1.setByte("V", (byte) 1);
         nbttagcompound1.setInteger("xPos", this.x);
         nbttagcompound1.setInteger("zPos", this.z);
-
-        NBTTagList nbttaglist = new NBTTagList();
-
-        int i = 16;
-        NBTTagCompound nbttagcompound2;
-
-        for (int y = 0; y < i; ++y) {
-            if (this.lsbArray[y] != null) {
-                nbttagcompound2 = new NBTTagCompound();
-                nbttagcompound2.setByte("Y", (byte) y);
-                nbttagcompound2.setByteArray("Blocks", this.lsbArray[y]);
-
-                if ((this.msbArray != null) && (this.msbArray[y] != null)) {
-                    nbttagcompound2.setByteArray("Add", this.msbArray[y]);
-                }
-
-                nbttagcompound2.setByteArray("Data", this.metaArray[y]);
-                nbttaglist.appendTag(nbttagcompound2);
-            }
-        }
-
-        nbttagcompound1.setTag("Sections", nbttaglist);
-        nbttagcompound1.setByteArray("Biomes", this.biomeArray);
+        if (blockStorage != null)
+            blockStorage.serialize(nbttagcompound1);
+        if (biomeStorage != null)
+            biomeStorage.serialize(nbttagcompound1);
 
         NBTTagList nbttaglist3 = new NBTTagList();
 
         for (TileEntity tileentity : this.tileEntityMap.values()) {
-            nbttagcompound2 = new NBTTagCompound();
+            val nbttagcompound2 = new NBTTagCompound();
             try {
                 tileentity.writeToNBT(nbttagcompound2);
                 nbttaglist3.appendTag(nbttagcompound2);

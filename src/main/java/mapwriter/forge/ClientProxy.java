@@ -16,10 +16,12 @@ public class ClientProxy extends CommonProxy {
     private MwConfig config;
 
     public void preInit(File configFile) {
+        super.preInit(configFile);
         this.config = new MwConfig(configFile);
     }
 
     public void load() {
+        super.load();
         Mw mw = new Mw(this.config);
         MinecraftForge.EVENT_BUS.register(new EventHandler(mw));
 
@@ -29,6 +31,7 @@ public class ClientProxy extends CommonProxy {
     }
 
     public void postInit() {
+        super.postInit();
         if (Loader.isModLoaded("CarpentersBlocks")) {
             MwChunk.carpenterData();
         }

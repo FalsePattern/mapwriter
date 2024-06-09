@@ -1,24 +1,43 @@
 package mapwriter.region;
 
+import gnu.trove.map.TIntObjectMap;
+import gnu.trove.map.TLongIntMap;
+import gnu.trove.map.TLongObjectMap;
+import gnu.trove.map.hash.TIntObjectHashMap;
+import gnu.trove.map.hash.TLongIntHashMap;
+import gnu.trove.map.hash.TLongObjectHashMap;
+import lombok.val;
+import lombok.var;
+import mapwriter.forge.EndlessIDsCompat;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Scanner;
 
 public class BlockColours {
 
-    public static final int MAX_BLOCKS = 4096;
-    public static final int MAX_META = 16;
-    public static final int MAX_BIOMES = 256;
-    private final int[] bcArray = new int[MAX_BLOCKS * MAX_META];
-    private final int[] waterMultiplierArray = new int[MAX_BIOMES];
-    private final int[] grassMultiplierArray = new int[MAX_BIOMES];
-    private final int[] foliageMultiplierArray = new int[MAX_BIOMES];
+    public static int blockCount() {
+        return EndlessIDsCompat.blocks() ? EndlessIDsCompat.blockCount() : 4096;
+    }
+
+    public static int metaCount() {
+        return EndlessIDsCompat.blocks() ? EndlessIDsCompat.metaCount() : 16;
+    }
+
+    public static int biomeCount() {
+        return EndlessIDsCompat.biomes() ? EndlessIDsCompat.biomeCount() : 256;
+    }
+    private final TLongIntMap bcArray = new TLongIntHashMap(1024, 0.5F, 0, 0);
+    private final int[] waterMultiplierArray = new int[biomeCount()];
+    private final int[] grassMultiplierArray = new int[biomeCount()];
+    private final int[] foliageMultiplierArray = new int[biomeCount()];
 
     public enum BlockType {
         NORMAL,
@@ -29,30 +48,28 @@ public class BlockColours {
         OPAQUE
     }
 
-    private final BlockType[] blockTypeArray = new BlockType[MAX_BLOCKS * MAX_META];
+    private final TLongObjectMap<BlockType> blockTypeArray = new TLongObjectHashMap<>(1024, 0.5F, 0);
 
     public BlockColours() {
-        Arrays.fill(this.bcArray, 0);
         Arrays.fill(this.waterMultiplierArray, 0xffffff);
         Arrays.fill(this.grassMultiplierArray, 0xffffff);
         Arrays.fill(this.foliageMultiplierArray, 0xffffff);
-        Arrays.fill(this.blockTypeArray, BlockType.NORMAL);
     }
 
-    public int getColour(int blockAndMeta) {
-        return this.bcArray[blockAndMeta & 0xffff];
+    public int getColour(long blockAndMeta) {
+        return bcArray.get(blockAndMeta);
     }
 
-    public void setColour(int blockAndMeta, int colour) {
-        this.bcArray[blockAndMeta & 0xffff] = colour;
+    public void setColour(long blockAndMeta, int colour) {
+        bcArray.put(blockAndMeta, colour);
     }
 
     public int getColour(int blockID, int meta) {
-        return this.bcArray[((blockID & 0xfff) << 4) | (meta & 0xf)];
+        return getColour((blockID & 0xFFFFFFFFL) | ((meta & 0xFFFFFFFFL) << 32));
     }
 
     public void setColour(int blockID, int meta, int colour) {
-        this.bcArray[((blockID & 0xfff) << 4) | (meta & 0xf)] = colour;
+        setColour((blockID & 0xFFFFFFFFL) | ((meta & 0xFFFFFFFFL) << 32), colour);
     }
 
     private int getGrassColourMultiplier(int biome) {
@@ -70,10 +87,14 @@ public class BlockColours {
                 this.foliageMultiplierArray[biome] : 0xffffff;
     }
 
-    public int getBiomeColour(int blockAndMeta, int biome) {
-        blockAndMeta &= 0xffff;
+    public int getBiomeColour(long blockAndMeta, int biome) {
+
+        var type = blockTypeArray.get(blockAndMeta);
+        if (type == null)
+            type = BlockType.NORMAL;
+
         int colourMultiplier;
-        switch (this.blockTypeArray[blockAndMeta]) {
+        switch (type) {
             case GRASS:
                 colourMultiplier = getGrassColourMultiplier(biome);
                 break;
@@ -92,15 +113,15 @@ public class BlockColours {
     }
 
     public void setBiomeWaterShading(int biomeID, int colour) {
-        this.waterMultiplierArray[biomeID & 0xff] = colour;
+        this.waterMultiplierArray[biomeID & (biomeCount() - 1)] = colour;
     }
 
     public void setBiomeGrassShading(int biomeID, int colour) {
-        this.grassMultiplierArray[biomeID & 0xff] = colour;
+        this.grassMultiplierArray[biomeID & (biomeCount() - 1)] = colour;
     }
 
     public void setBiomeFoliageShading(int biomeID, int colour) {
-        this.foliageMultiplierArray[biomeID & 0xff] = colour;
+        this.foliageMultiplierArray[biomeID & (biomeCount() - 1)] = colour;
     }
 
     private static BlockType getBlockTypeFromString(String typeString) {
@@ -146,16 +167,19 @@ public class BlockColours {
         return s;
     }
 
-    public BlockType getBlockType(int blockAndMeta) {
-        return this.blockTypeArray[blockAndMeta & 0xffff];
+    public BlockType getBlockType(long blockAndMeta) {
+        val type = blockTypeArray.get(blockAndMeta);
+        return type == null ? BlockType.NORMAL : type;
     }
 
-    public BlockType getBlockType(int blockId, int meta) {
-        return this.blockTypeArray[((blockId & 0xfff) << 4) | (meta & 0xf)];
+    public BlockType getBlockType(int blockID, int meta) {
+        return getBlockType((blockID & 0xFFFFFFFFL) | ((meta & 0xFFFFFFFFL) << 32));
     }
 
-    public void setBlockType(int blockId, int meta, BlockType type) {
-        this.blockTypeArray[((blockId & 0xfff) << 4) | (meta & 0xf)] = type;
+    public void setBlockType(int blockID, int meta, BlockType type) {
+        if (type == null)
+            type = BlockType.NORMAL;
+        blockTypeArray.put((blockID & 0xFFFFFFFFL) | ((meta & 0xFFFFFFFFL) << 32), type);
     }
 
     public static int getColourFromString(String s) {
@@ -173,13 +197,13 @@ public class BlockColours {
     private void loadBiomeLine(String[] split) {
         try {
             int startBiomeId = 0;
-            int endBiomeId = MAX_BIOMES;
+            int endBiomeId = 256; //hardcoded for legacy compat
             if (!split[1].equals("*")) {
                 startBiomeId = Integer.parseInt(split[1]);
                 endBiomeId = startBiomeId + 1;
             }
 
-            if ((startBiomeId >= 0) && (startBiomeId < MAX_BIOMES)) {
+            if ((startBiomeId >= 0) && (startBiomeId < biomeCount())) {
                 int waterMultiplier = getColourFromString(split[2]) & 0xffffff;
                 int grassMultiplier = getColourFromString(split[3]) & 0xffffff;
                 int foliageMultiplier = getColourFromString(split[4]) & 0xffffff;
@@ -206,20 +230,20 @@ public class BlockColours {
     private void loadBlockLine(String[] split, boolean isBlockColourLine) {
         try {
             int startBlockId = 0;
-            int endBlockId = MAX_BLOCKS;
+            int endBlockId = 4096; //hardcoded for legacy compat
             if (!split[1].equals("*")) {
                 startBlockId = Integer.parseInt(split[1]);
                 endBlockId = startBlockId + 1;
             }
 
             int startBlockMeta = 0;
-            int endBlockMeta = MAX_META;
+            int endBlockMeta = 16; //hardcoded for legacy compat
             if (!split[2].equals("*")) {
                 startBlockMeta = Integer.parseInt(split[2]);
                 endBlockMeta = startBlockMeta + 1;
             }
 
-            if ((startBlockId >= 0) && (startBlockId < MAX_BLOCKS) && (startBlockMeta >= 0) && (startBlockMeta < MAX_META)) {
+            if ((startBlockId >= 0) && (startBlockId < blockCount()) && (startBlockMeta >= 0) && (startBlockMeta < metaCount())) {
                 if (isBlockColourLine) {
                     // block colour line
                     int colour = getColourFromString(split[3]);
@@ -277,7 +301,7 @@ public class BlockColours {
     public void saveBiomes(Writer fout) throws IOException {
         fout.write("biome * ffffff ffffff ffffff\n");
 
-        for (int biomeId = 0; biomeId < MAX_BIOMES; biomeId++) {
+        for (int biomeId = 0; biomeId < biomeCount(); biomeId++) {
             int waterMultiplier = this.getWaterColourMultiplier(biomeId) & 0xffffff;
             int grassMultiplier = this.getGrassColourMultiplier(biomeId) & 0xffffff;
             int foliageMultiplier = this.getFoliageColourMultiplier(biomeId) & 0xffffff;
@@ -312,65 +336,98 @@ public class BlockColours {
     // an 'item' is either a block colour or a block type.
     // the most commonly occurring item is then used as the wildcard entry for
     // the block, and all non matching items added afterwards.
-    private static void writeMinimalBlockLines(Writer fout, String lineStart, String[] items, String defaultItem) throws IOException {
-
-        Map<String, Integer> frequencyMap = new HashMap<>();
-
-        // first count the number of occurrences of each item.
-        for (String item : items) {
-            int count = 0;
-            if (frequencyMap.containsKey(item)) {
-                count = frequencyMap.get(item);
-            }
-            frequencyMap.put(item, count + 1);
+    private static void writeMinimalBlockLines(Writer fout, String lineStart, TIntObjectMap<String> items, String defaultItem) throws IOException {
+        try {
+            items.forEachEntry((i, value) -> {
+                if (!value.equals(defaultItem)) {
+                    try {
+                        fout.write(String.format("%s %d %s\n", lineStart, i, value));
+                    } catch (IOException e) {
+                        throw new BoxedException(e);
+                    }
+                }
+                return true;
+            });
+        } catch (BoxedException e) {
+            throw e.cause;
         }
+    }
 
-        // then find the most commonly occurring item.
-        String mostOccurringItem = getMostOccurringKey(frequencyMap, defaultItem);
-
-        // only add a wildcard line if it actually saves lines.
-        if (!mostOccurringItem.equals(defaultItem)) {
-            fout.write(String.format("%s * %s\n", lineStart, mostOccurringItem));
-        }
-
-        // add lines for items that don't match the wildcard line.
-        for (int i = 0; i < items.length; i++) {
-            if (!items[i].equals(mostOccurringItem) && !items[i].equals(defaultItem)) {
-                fout.write(String.format("%s %d %s\n", lineStart, i, items[i]));
-            }
+    private static class BoxedException extends RuntimeException {
+        final IOException cause;
+        public BoxedException(IOException cause) {
+            super(cause);
+            this.cause = cause;
         }
     }
 
     public void saveBlocks(Writer fout) throws IOException {
         fout.write("block * * 00000000\n");
 
-        String[] colours = new String[MAX_META];
+        TIntObjectMap<TIntObjectMap<String>> blocks = new TIntObjectHashMap<>();
 
-        for (int blockId = 0; blockId < MAX_BLOCKS; blockId++) {
-            // build a 16 element list of block colours
-            for (int meta = 0; meta < MAX_META; meta++) {
-                colours[meta] = String.format("%08x", this.getColour(blockId, meta));
+        bcArray.forEachEntry((packedID, value) -> {
+            int blockID = (int) (packedID & 0xFFFFFFFFL);
+            TIntObjectMap<String> colours;
+            if (blocks.containsKey(blockID))
+                colours = blocks.get(blockID);
+            else {
+                colours = new TIntObjectHashMap<>();
+                blocks.put(blockID, colours);
             }
-            // write a minimal representation to the file
-            String lineStart = String.format("block %d", blockId);
-            writeMinimalBlockLines(fout, lineStart, colours, "00000000");
+            int meta = (int) ((packedID >> 32) & 0xFFFFFFFFL);
+            colours.put(meta, String.format("%08x", value));
+            return true;
+        });
+
+        try {
+            blocks.forEachEntry((blockId, colours) -> {
+                // write a minimal representation to the file
+                String lineStart = String.format("block %d", blockId);
+                try {
+                    writeMinimalBlockLines(fout, lineStart, colours, "00000000");
+                } catch (IOException e) {
+                    throw new BoxedException(e);
+                }
+                return true;
+            });
+        } catch (BoxedException e) {
+            throw e.cause;
         }
     }
 
     public void saveBlockTypes(Writer fout) throws IOException {
-        fout.write("blocktype * * normal\n");
+        TIntObjectMap<TIntObjectMap<String>> blocks = new TIntObjectHashMap<>();
 
-        String[] blockTypes = new String[MAX_META];
-
-        for (int blockId = 0; blockId < MAX_BLOCKS; blockId++) {
-            // build a 16 element list of block types
-            for (int meta = 0; meta < MAX_META; meta++) {
-                BlockType bt = this.getBlockType(blockId, meta);
-                blockTypes[meta] = getBlockTypeAsString(bt);
+        blockTypeArray.forEachEntry((packedID, value) -> {
+            int blockID = (int) (packedID & 0xFFFFFFFFL);
+            TIntObjectMap<String> blockTypes;
+            if (blocks.containsKey(blockID))
+                blockTypes = blocks.get(blockID);
+            else {
+                blockTypes = new TIntObjectHashMap<>();
+                blocks.put(blockID, blockTypes);
             }
-            // write a minimal representation to the file
-            String lineStart = String.format("blocktype %d", blockId);
-            writeMinimalBlockLines(fout, lineStart, blockTypes, "normal");
+            int meta = (int) ((packedID >> 32) & 0xFFFFFFFFL);
+
+            blockTypes.put(meta, getBlockTypeAsString(value));
+            return true;
+        });
+
+
+        try {
+            blocks.forEachEntry((blockId, blockTypes) -> {
+                // write a minimal representation to the file
+                String lineStart = String.format("blocktype %d", blockId);
+                try {
+                    writeMinimalBlockLines(fout, lineStart, blockTypes, "normal");
+                } catch (IOException e) {
+                    throw new BoxedException(e);
+                }
+                return true;
+            });
+        } catch (BoxedException e) {
+            throw e.cause;
         }
     }
 
